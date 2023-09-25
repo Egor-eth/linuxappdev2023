@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 		unsigned lines_available = umin(max_lines, lines_count - cursor);
 
 		for(unsigned i = 0; i < lines_available; ++i) {
-			mvwprintw(win, 1 + i, 1, "%s", contents[cursor + i]);
+			mvwprintw(win, 1 + i, 1, "%4i:  %s", cursor + 1 + i, contents[cursor + i]);
 		}
 		box(win, 0, 0);
 		wrefresh(win);

@@ -23,16 +23,20 @@ done <<< $input
 chars=$(echo "${chars}" | shuf)
 #echo "${chars}"
 
-tput clear
+input="$( echo "$input" | iconv -t ucs-2 - )"
+#tput clear
 
+echo "$input"
 
 while read -r idx;
 do
-	arr=(${idx});
-	tput cup $idx;
+	arr=(${idx})
+	#tput cup $idx
 	#${arr[0]} $((${arr[1]} + 1))
-	#echo ${arr[0]};
-	echo "$input" | head -n "${arr[0]}" -c "${arr[1]}" - | tail -n 1 -c 1 -;
-	tput cup $LINES 0;
-	sleep 0.$1;
+	#echo "$((2*arr[1]))"
+	hex=$(echo "$input" | head -n "${arr[0]}" -c "$((2*arr[1]))" - | tail -n 1 -c 2 - | hexdump | cut -c 9- | head -n 1 -c 4 - )
+	echo $hex
+	/bin/echo -e "\u$hex"
+	#tput cup $LINES 0
+	sleep 0.$1
 done <<< ${chars}

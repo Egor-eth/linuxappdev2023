@@ -39,28 +39,39 @@ void free_sub_regex()
     _sub_regex_compiled = false;
 }
 
-unsigned sub_parse_count(const char *substitution)
+unsigned sub_parse_count_create_ids(const char *substitution, unsigned **ids)
 {
     regmatch_t  pmatch[1];
     const char *ptr = substitution;
 
-    unsigned counter = 0;
+    size_t ids_len = 0;
+    size_t ids_size = REALLOC_STEP;
+    *ids = malloc(REALLOC_STEP * sizeof(unsigned));
+    for(;;) {
+        if(!regexec(&sub_regex_comp, ptr, 1, pmatch, 0)) {
+            const char *ptr1 = ptr + pmatch->rm_so + 1;
+            long idx;
+            size_t alloc_size = pmatch->rm_eo - pmatch->rm_so;
+            char *tmp = malloc(alloc_size);
+            strncpy(tmp, ptr1, alloc_size - 1);
+            idx = atol(tmp);
+            free(tmp);
 
-    for(;; ++counter) {
-        if(regexec(&sub_regex_comp, ptr, 1, pmatch, 0)) {
-            return counter;
+            if(ids_len == ids_size) {
+                *ids = realloc(*ids, (ids_size += REALLOC_STEP) * sizeof(unsigned));
+            }
+            (*ids)[ids_len++] = idx;
+            ptr += pmatch[0].rm_eo;
         }
-      //  printf("%s\n", ptr);
-        ptr += pmatch[0].rm_eo;
-
+        else {
+            return ids_len;
+        }
     }
 }
 
 unsigned sub_find_next(const char *substitution, regmatch_t *pmatch)
 {
-    const char *ptr = substitution;
-
-    if(!regexec(&sub_regex_comp, ptr, 1, pmatch, 0)) {
+    if(!regexec(&sub_regex_comp, substitution, 1, pmatch, 0)) {
         const char *ptr = substitution + pmatch->rm_so + 1;
         long idx;
         size_t alloc_size = pmatch->rm_eo - pmatch->rm_so;
@@ -77,22 +88,24 @@ unsigned sub_find_next(const char *substitution, regmatch_t *pmatch)
     return 0;
 }
 
-size_t substitute(char **dst, size_t dst_size, regoff_t start, regoff_t end, const char *src, size_t n) {
+size_t substitute(char **dst, size_t *dst_size, regoff_t start, regoff_t end, const char *src, size_t n) {
     const size_t diff = n - (end - start);
 
-    if(diff > 0) {
-        *dst = realloc(*dst, dst_size += ((diff / REALLOC_STEP) + 1) * REALLOC_STEP);
+    const size_t dst_len = strlen(*dst);
+    const size_t size_diff = *dst_size - dst_len + diff;
+    if(size_diff > 0) {
+        *dst = realloc(*dst, *dst_size += ((size_diff / REALLOC_STEP) + 1) * REALLOC_STEP);
     }
 
     char *postfix = *dst + end;
-    memmove(postfix + diff, postfix, strlen(*dst) - end + 2); //null and start
+    memmove(postfix + diff, postfix, dst_len - end + 2); //null and start
 
     memcpy(*dst + start, src, n);
 
-    return dst_size;
+    return diff;
 }
 
-size_t substitute_string(char **dst, size_t dst_size, const char *src, const regmatch_t *match, unsigned sub_index)
+size_t substitute_string(char **dst, size_t *dst_size, const char *src, const regmatch_t *match, unsigned sub_index)
 {
     const regoff_t src_start = match->rm_so;
     const regoff_t src_end = match->rm_eo;
@@ -126,7 +139,9 @@ int main(int argc, char **argv)
     atexit(free_sub_regex);
     compile_sub_regex();
 
-    const unsigned pmatch_size = sub_parse_count(substitution) + 1;
+    unsigned *ids;
+    const unsigned pmatch_size = sub_parse_count_create_ids(substitution, &ids) + 1;
+
     if(pmatch_size > 1) {
         regmatch_t *pmatch = malloc(pmatch_size * sizeof(regmatch_t));
         regex_t regex;
@@ -144,20 +159,33 @@ int main(int argc, char **argv)
             strcpy(buf, substitution);
 
             for(unsigned i = 1; i < pmatch_size; ++i) {
-                if((buf_size = substitute_string(&buf, buf_size, str, pmatch + i, i)) == 0) {
+                if(ids[i - 1] > pmatch_size) {
+                    fprintf(stderr, "Unknown substitution: %u\n", ids[i - 1]);
+                    free(buf);
                     regfree(&regex);
                     free(pmatch);
                     free(dst);
+                    free(ids);
                     return 1;
                 }
+                substitute_string(&buf, &buf_size, str, pmatch + ids[i - 1], ids[i - 1]);
+                if(buf_size == 0) {
+                    regfree(&regex);
+                    free(pmatch);
+                    free(dst);
+                    free(ids);
+                    return 1;
+                }
+
             }
-            substitute(&dst, dst_size, pmatch[0].rm_so, pmatch[1].rm_eo, buf, strlen(buf));
+            substitute(&dst, &dst_size, pmatch[0].rm_so, pmatch[0].rm_eo, buf, strlen(buf));
             free(buf);
         }
 
 
         regfree(&regex);
         free(pmatch);
+        free(ids);
     } 
     printf("%s\n", dst);
     free(dst);
